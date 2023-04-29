@@ -120,12 +120,14 @@ void branchPredictor::updateHistory( int tagIdx, bool taken)
 	if ( isGlobalHist_ )
 	{
 		global_history_ <<= 1;
-		global_history_ += (int)taken; // may have to do & with historySize
+		global_history_ += (int)taken;
+		//global_history_ = global_history_ & (historySize_-1);
 	}
 	else /*local hist*/
 	{		
 		history_vector_[tagIdx]  <<= 1;
-		history_vector_[tagIdx]  += (int)taken; // may have to do & with historySize
+		history_vector_[tagIdx]  += (int)taken;
+		//global_history_ = global_history_ & (historySize_-1);
 	}
 }
 
@@ -165,14 +167,15 @@ void branchPredictor::updateFsm(uint32_t pc, int tagIdx, bool taken)
 		else if ( State==3 ) { fsm_table_[tagIdx][ history_vector_[tagIdx] ] += (taken?0:-1); }
 	}
 	/*updating stats_*/
-	if ( (State==0 || State==1)&&(fsmState_==2 || fsmState_==3) ) { stats_.flush_num+=3; }
-	if ( (State==2 || State==3)&&(fsmState_==0 || fsmState_==1) ) { stats_.flush_num+=3; }
+	
+	//if ( (State==0 || State==1)&&(fsmState_==2 || fsmState_==3) ) { stats_.flush_num++; }
+	//if ( (State==2 || State==3)&&(fsmState_==0 || fsmState_==1) ) { stats_.flush_num++; }
+	
 }
 
 void branchPredictor::insertNewBranch(uint32_t pc, uint32_t targetPc, bool taken, uint32_t pred_dst, int tagIdx, uint32_t tag)
 {
 	/*replacement or inserting*/
-	stats_.br_num++;
 	tag_vector_[tagIdx] = tag;
 	target_vector_[tagIdx] = targetPc;
 	if ( !isGlobalHist_ )
@@ -235,9 +238,15 @@ bool branchPredictor::predict(uint32_t pc, uint32_t *dst)
 
 void branchPredictor::update(uint32_t pc, uint32_t targetPc, bool taken, uint32_t pred_dst)
 {
-	predict(pc, &pred_dst);
+	stats_.br_num++; // New Branch, Taken or not
+	predict(pc, &pred_dst); // saved prediction in pred_dst
+
+	if ((taken && (pred_dst!=targetPc))|| (!taken && (pred_dst != pc+4))){ //Finding when we need to flush
+		stats_.flush_num++;
+	}
+
 	uint32_t tag = getTagFromPc(pc);
-	int tagIdx = getTagIdx(pc, tag);
+	int tagIdx = getTagIdx(pc, tag); //getting tag ID pc from btb
 	if( tag_vector_[tagIdx]==tag ) /*pc exist in btb*/ 
 	{
 		updateTarget(tagIdx, targetPc);
@@ -260,24 +269,26 @@ unsigned branchPredictor::getBrNum()
 }
 unsigned branchPredictor::getBtbSize()
 {
-	unsigned targetSize = 32;
+	unsigned targetSize = 30;
 	unsigned historySize = historySize_;
 	unsigned fsmSize = pow(2,historySize) * 2;
+	unsigned validBitSize = 1;
+	stats_.size = btbSize_*(validBitSize+targetSize+tagSize_);
 	if ( isGlobalTable_ && isGlobalHist_)  
 	{
-	 	stats_.size = stats_.br_num * ( tagSize_ + targetSize ) + historySize + fsmSize;
+	 	stats_.size += historySize_+fsmSize;
 	}
 	else if ( isGlobalTable_ && !isGlobalHist_ ) 
 	{
-		stats_.size = stats_.br_num * ( tagSize_ + targetSize + historySize ) + fsmSize ;
+		stats_.size += historySize_+btbSize_*fsmSize;
 	}
 	else if ( !isGlobalTable_ && isGlobalHist_ )
 	{
-		stats_.size = stats_.br_num * ( tagSize_ + targetSize + fsmSize ) + historySize;
+		stats_.size += btbSize_*historySize_+fsmSize;
 	}
 	else if ( !isGlobalTable_ && !isGlobalHist_ )
 	{
-		stats_.size = stats_.br_num * ( tagSize_ + targetSize + historySize + fsmSize );
+		stats_.size += btbSize_*(historySize_+fsmSize);
 	}
 	return stats_.size;
 }

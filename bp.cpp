@@ -71,7 +71,7 @@ branchPredictor::branchPredictor(unsigned btbSize, unsigned historySize, unsigne
 	tag_vector_ = vector<uint32_t>(btbSize,0);
 	history_vector_ = vector<uint32_t>(btbSize,0);
 	target_vector_ = vector<uint32_t>(btbSize,0);
-	global_fsm_table_ = vector<int>(btbSize,0);
+	global_fsm_table_ = vector<int>(pow(2,historySize),fsmState);
 	fsm_table_.resize(btbSize, vector<int>(pow(2,historySize), fsmState));
 }
 
@@ -83,11 +83,11 @@ uint32_t branchPredictor::getSharedHistory(uint32_t pc, uint32_t history)
 	}
 	if ( isShare_==1 ) /*using_share_lsb*/
 	{
-		return ((pc>>2)^(history)) & historySize_;
+		return ((pc>>2)^(history)) & (uint32_t)(pow(2,historySize_)-1);
 	}
 	if ( isShare_==2 ) /*using_share_mid*/
 	{
-		return ((pc>>16)^(history)) & historySize_;
+		return ((pc>>16)^(history)) & (uint32_t)(pow(2,historySize_)-1);
 	}
 	return -1;
 }
@@ -121,13 +121,13 @@ void branchPredictor::updateHistory( int tagIdx, bool taken)
 	{
 		global_history_ <<= 1;
 		global_history_ += (int)taken;
-		//global_history_ = global_history_ & (historySize_-1);
+		global_history_ = global_history_ & (uint32_t)(pow(2,historySize_)-1);
 	}
 	else /*local hist*/
 	{		
 		history_vector_[tagIdx]  <<= 1;
 		history_vector_[tagIdx]  += (int)taken;
-		//global_history_ = global_history_ & (historySize_-1);
+		history_vector_[tagIdx] = history_vector_[tagIdx] & (uint32_t)(pow(2,historySize_)-1);
 	}
 }
 
@@ -186,12 +186,8 @@ void branchPredictor::insertNewBranch(uint32_t pc, uint32_t targetPc, bool taken
 	{
 		fsm_table_[tagIdx][ history_vector_[tagIdx] ] = fsmState_;
 	}
-	if ( !isGlobalTable_ && isGlobalHist_ )
-	{
-		fsm_table_[tagIdx][ global_history_ ] = fsmState_;
-	}	
+	updateFsm(pc, tagIdx, taken);
 	updateHistory(tagIdx, taken);
-	updateFsm(pc, tagIdx, taken);	
 }
 
 bool branchPredictor::isTaken(uint32_t pc, int tagIdx)

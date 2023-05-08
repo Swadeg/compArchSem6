@@ -23,6 +23,7 @@ class branchPredictor {
 	SIM_stats stats_; 
 	uint32_t global_history_;
 	vector<uint32_t> tag_vector_;
+	//vector<bool> valid_vector_;
 	vector<uint32_t> history_vector_;
 	vector<uint32_t> target_vector_;
 	vector<int> global_fsm_table_;
@@ -73,6 +74,12 @@ branchPredictor::branchPredictor(unsigned btbSize, unsigned historySize, unsigne
 	target_vector_ = vector<uint32_t>(btbSize,0);
 	global_fsm_table_ = vector<int>(pow(2,historySize),fsmState);
 	fsm_table_.resize(btbSize, vector<int>(pow(2,historySize), fsmState));
+
+	/*for (uint32_t i = 0; i < btbSize_; i++)
+	{
+		valid_vector_ [i]= false;
+	}*/
+	
 }
 
 uint32_t branchPredictor::getSharedHistory(uint32_t pc, uint32_t history)
@@ -155,6 +162,7 @@ void branchPredictor::updateFsm(uint32_t pc, int tagIdx, bool taken)
 
 		State = fsm_table_[tagIdx][ history_vector_[tagIdx] ];
 	}
+	
 	if (taken){
 		if (State<3) change =1;
 	}
@@ -191,7 +199,7 @@ void branchPredictor::insertNewBranch(uint32_t pc, uint32_t targetPc, bool taken
 
 bool branchPredictor::isTaken(uint32_t pc, int tagIdx)
 {
-	int State;
+	/*int State;
 	if ( isGlobalTable_ && isGlobalHist_)  
 	{
 		uint32_t sharedHistory = getSharedHistory(pc, global_history_); //depends on isShare
@@ -209,7 +217,20 @@ bool branchPredictor::isTaken(uint32_t pc, int tagIdx)
 	else if ( !isGlobalTable_ && !isGlobalHist_ )
 		State = fsm_table_[tagIdx][ history_vector_[tagIdx] ];
 	
-	return ( State==2 || State==3 );
+	return ( State==2 || State==3 );*/
+
+	int State;
+	uint32_t tableIndex;
+	if (isGlobalHist_){
+		tableIndex= getSharedHistory(pc, global_history_);
+	}
+	else{
+		tableIndex = getSharedHistory(pc,history_vector_[tagIdx]);
+	}
+	State = (isGlobalTable_)?global_fsm_table_[tableIndex]:fsm_table_[tagIdx][tableIndex];
+
+	return State>=2;
+	
 }
 
 bool branchPredictor::predict(uint32_t pc, uint32_t *dst)
@@ -217,7 +238,8 @@ bool branchPredictor::predict(uint32_t pc, uint32_t *dst)
 	uint32_t tag = getTagFromPc(pc);
 	int tagIdx = getTagIdx(pc, tag);
 	
-	if( (tag_vector_[tagIdx]==tag) && isTaken(pc, tagIdx) ) 
+	//&& valid_vector_[tagIdx]
+	if( (tag_vector_[tagIdx]==tag) && isTaken(pc, tagIdx)) 
 	{
 		*dst = getTargetFromTagIdx(tagIdx);
 		return true;
@@ -232,12 +254,7 @@ bool branchPredictor::predict(uint32_t pc, uint32_t *dst)
 
 void branchPredictor::update(uint32_t pc, uint32_t targetPc, bool taken, uint32_t pred_dst)
 {
-	stats_.br_num++; // New Branch, Taken or not
-	predict(pc, &pred_dst); // saved prediction in pred_dst
-
-	if ((taken && (pred_dst!=targetPc))|| (!taken && (pred_dst != pc+4))) //Finding when we need to flush
-		stats_.flush_num++;
-
+	
 	uint32_t tag = getTagFromPc(pc);
 	int tagIdx = getTagIdx(pc, tag); //getting tag ID pc from btb
 	if( tag_vector_[tagIdx]==tag ) /*pc exist in btb*/ 
@@ -248,6 +265,12 @@ void branchPredictor::update(uint32_t pc, uint32_t targetPc, bool taken, uint32_
 	}
 	else /*pc does not exist in btb: may have to replace or insert*/
 		insertNewBranch(pc, targetPc, taken, pred_dst, tagIdx, tag);
+
+	stats_.br_num++; // New Branch, Taken or not
+	//predict(pc, &pred_dst); // saved prediction in pred_dst
+
+	if ((taken && (pred_dst!=targetPc))|| (!taken && (pred_dst != pc+4))) //Finding when we need to flush
+		stats_.flush_num++;
 
 }
 

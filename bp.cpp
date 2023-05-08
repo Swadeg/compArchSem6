@@ -136,13 +136,25 @@ void branchPredictor::updateFsm(uint32_t pc, int tagIdx, bool taken)
 {
 	int State,change=0;
 	uint32_t sharedHistory;
-	if ( isGlobalTable_ && isGlobalHist_) State = global_fsm_table_[ sharedHistory ];
+	if ( isGlobalTable_ && isGlobalHist_) {
+		sharedHistory = getSharedHistory(pc, global_history_); //depends on isShare
+		State = global_fsm_table_[ sharedHistory ];
+	}
+	else if ( isGlobalTable_ && !isGlobalHist_ ) {
+		sharedHistory = getSharedHistory(pc, history_vector_[tagIdx]); //depends on isShare
+		State = global_fsm_table_[ sharedHistory ];
+	}
+		
 
-	else if ( isGlobalTable_ && !isGlobalHist_ ) State = global_fsm_table_[ sharedHistory ];
+	else if ( !isGlobalTable_ && isGlobalHist_ ){
+		State = fsm_table_[tagIdx][ global_history_ ];
+	} 
+		
 
-	else if ( !isGlobalTable_ && isGlobalHist_ ) State = fsm_table_[tagIdx][ global_history_ ];
+	else if ( !isGlobalTable_ && !isGlobalHist_ ){
 
-	else if ( !isGlobalTable_ && !isGlobalHist_ ) State = fsm_table_[tagIdx][ history_vector_[tagIdx] ];
+		State = fsm_table_[tagIdx][ history_vector_[tagIdx] ];
+	}
 	if (taken){
 		if (State<3) change =1;
 	}

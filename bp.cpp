@@ -23,6 +23,7 @@ class branchPredictor {
 	SIM_stats stats_; 
 	uint32_t global_history_;
 	vector<uint32_t> tag_vector_;
+	vector<bool> valid_vector_;
 	vector<uint32_t> history_vector_;
 	vector<uint32_t> target_vector_;
 	vector<int> global_fsm_table_;
@@ -35,7 +36,6 @@ public:
 	~branchPredictor() {};
 	bool predict(uint32_t pc, uint32_t *dst);
 	void update(uint32_t pc, uint32_t targetPc, bool taken, uint32_t pred_dst);
-	/*add methods here*/
 	uint32_t getSharedHistory(uint32_t pc, uint32_t history);
 	uint32_t getTagFromPc(uint32_t pc);
 	int getTagIdx(uint32_t pc, uint32_t tag); /*return -1 if tag doesnt exist else returns tagIdx*/
@@ -71,6 +71,7 @@ branchPredictor::branchPredictor(unsigned btbSize, unsigned historySize, unsigne
 	tag_vector_ = vector<uint32_t>(btbSize,0);
 	history_vector_ = vector<uint32_t>(btbSize,0);
 	target_vector_ = vector<uint32_t>(btbSize,0);
+	valid_vector_ = vector<bool>(btbSize,false);
 	global_fsm_table_ = vector<int>(pow(2,historySize),fsmState);
 	fsm_table_.resize(btbSize, vector<int>(pow(2,historySize), fsmState));
 }
@@ -94,7 +95,8 @@ uint32_t branchPredictor::getSharedHistory(uint32_t pc, uint32_t history)
 
 uint32_t branchPredictor::getTagFromPc(uint32_t pc)
 {
-	return pc >> ( 2 + (int)log2(btbSize_) ); /*2 is due to 2 zeroes in 2 lsb bits*/
+	return (pc >> ( 2 + (int)log2(btbSize_))) & (uint32_t)(pow(2,tagSize_)-1); /*2 is due to 2 zeroes in 2 lsb bits*/
+
 }
 
 int branchPredictor::getTagIdx(uint32_t pc , uint32_t tag) /*return -1 if tag doesnt exist else returns tagIdx*/
@@ -133,44 +135,45 @@ void branchPredictor::updateHistory( int tagIdx, bool taken)
 
 void branchPredictor::updateFsm(uint32_t pc, int tagIdx, bool taken)
 {
-	int State;
-	if ( isGlobalTable_ && isGlobalHist_)  
-	{
-		uint32_t sharedHistory = getSharedHistory(pc, global_history_); //depends on isShare
+	int State,change=0;
+	uint32_t sharedHistory;
+	if ( isGlobalTable_ && isGlobalHist_) {
+		sharedHistory = getSharedHistory(pc, global_history_); //depends on isShare
 		State = global_fsm_table_[ sharedHistory ];
-		if ( State==1 || State==2 )  { global_fsm_table_[ sharedHistory ] += (taken?1:-1); }
-		else if ( State==0 ) { global_fsm_table_[ sharedHistory ] += (taken?1:0); }
-		else if ( State==3 ) { global_fsm_table_[ sharedHistory ] += (taken?0:-1); }			
-		
 	}
-	else if ( isGlobalTable_ && !isGlobalHist_ ) 
-	{
-		uint32_t sharedHistory = getSharedHistory(pc, history_vector_[tagIdx]); //depends on isShare
+	else if ( isGlobalTable_ && !isGlobalHist_ ) {
+		sharedHistory = getSharedHistory(pc, history_vector_[tagIdx]); //depends on isShare
 		State = global_fsm_table_[ sharedHistory ];
-		if ( State==1 || State==2 )  { global_fsm_table_[ sharedHistory ] += (taken?1:-1); }
-		else if ( State==0 ) { global_fsm_table_[ sharedHistory ] += (taken?1:0); }
-		else if ( State==3 ) { global_fsm_table_[ sharedHistory ] += (taken?0:-1); }		
-		
 	}
-	else if ( !isGlobalTable_ && isGlobalHist_ )
-	{
+		
+
+	else if ( !isGlobalTable_ && isGlobalHist_ ){
 		State = fsm_table_[tagIdx][ global_history_ ];
-		if ( State==1 || State==2 )  { fsm_table_[tagIdx][ global_history_ ] += (taken?1:-1); }
-		else if ( State==0 ) { fsm_table_[tagIdx][ global_history_ ] += (taken?1:0); }
-		else if ( State==3 ) { fsm_table_[tagIdx][ global_history_ ] += (taken?0:-1); }
-	}
-	else if ( !isGlobalTable_ && !isGlobalHist_ )
-	{
+	} 
+		
+
+	else if ( !isGlobalTable_ && !isGlobalHist_ ){
+
 		State = fsm_table_[tagIdx][ history_vector_[tagIdx] ];
-		if ( State==1 || State==2 )  { fsm_table_[tagIdx][ history_vector_[tagIdx] ] += (taken?1:-1); }
-		else if ( State==0 ) { fsm_table_[tagIdx][ history_vector_[tagIdx] ] += (taken?1:0); }
-		else if ( State==3 ) { fsm_table_[tagIdx][ history_vector_[tagIdx] ] += (taken?0:-1); }
 	}
-	/*updating stats_*/
 	
-	//if ( (State==0 || State==1)&&(fsmState_==2 || fsmState_==3) ) { stats_.flush_num++; }
-	//if ( (State==2 || State==3)&&(fsmState_==0 || fsmState_==1) ) { stats_.flush_num++; }
-	
+	if (taken){
+		if (State<3) change =1;
+	}
+	else if(State>0) change = -1;
+
+	if ( isGlobalTable_ && isGlobalHist_){
+		global_fsm_table_[getSharedHistory(pc, global_history_)]+=change;
+	}
+	else if ( isGlobalTable_ && !isGlobalHist_ ) {
+		global_fsm_table_[ getSharedHistory(pc, history_vector_[tagIdx])]+=change;
+	}
+	else if ( !isGlobalTable_ && isGlobalHist_ ){
+		fsm_table_[tagIdx][ global_history_ ]+= change;
+	}
+	else if ( !isGlobalTable_ && !isGlobalHist_ ){
+		fsm_table_[tagIdx][ history_vector_[tagIdx] ]+=change;
+	}
 }
 
 void branchPredictor::insertNewBranch(uint32_t pc, uint32_t targetPc, bool taken, uint32_t pred_dst, int tagIdx, uint32_t tag)
@@ -178,14 +181,14 @@ void branchPredictor::insertNewBranch(uint32_t pc, uint32_t targetPc, bool taken
 	/*replacement or inserting*/
 	tag_vector_[tagIdx] = tag;
 	target_vector_[tagIdx] = targetPc;
+	valid_vector_[tagIdx] = true;
 	if ( !isGlobalHist_ )
-	{
 		history_vector_[tagIdx] = 0;
+
+	if ( !isGlobalTable_ ){
+		fsm_table_[tagIdx] = vector<int>(pow(2,historySize_),fsmState_);
 	}
-	if ( !isGlobalTable_ && !isGlobalHist_ )
-	{
-		fsm_table_[tagIdx][ history_vector_[tagIdx] ] = fsmState_;
-	}
+
 	updateFsm(pc, tagIdx, taken);
 	updateHistory(tagIdx, taken);
 }
@@ -193,25 +196,17 @@ void branchPredictor::insertNewBranch(uint32_t pc, uint32_t targetPc, bool taken
 bool branchPredictor::isTaken(uint32_t pc, int tagIdx)
 {
 	int State;
-	if ( isGlobalTable_ && isGlobalHist_)  
-	{
-		uint32_t sharedHistory = getSharedHistory(pc, global_history_); //depends on isShare
-		State = global_fsm_table_[ sharedHistory ];			
+	uint32_t tableIndex;
+	if (isGlobalHist_){
+		tableIndex= getSharedHistory(pc, global_history_);
 	}
-	else if ( isGlobalTable_ && !isGlobalHist_ ) 
-	{
-		uint32_t sharedHistory = getSharedHistory(pc, history_vector_[tagIdx]); //depends on isShare
-		State = global_fsm_table_[ sharedHistory ];		
+	else{
+		tableIndex = getSharedHistory(pc,history_vector_[tagIdx]);
 	}
-	else if ( !isGlobalTable_ && isGlobalHist_ )
-	{
-		State = fsm_table_[tagIdx][ global_history_ ];
-	}
-	else if ( !isGlobalTable_ && !isGlobalHist_ )
-	{
-		State = fsm_table_[tagIdx][ history_vector_[tagIdx] ];
-	}
-	return ( State==2 || State==3 );
+	State = (isGlobalTable_)?global_fsm_table_[tableIndex]:fsm_table_[tagIdx][tableIndex];
+
+	return State>=2;
+	
 }
 
 bool branchPredictor::predict(uint32_t pc, uint32_t *dst)
@@ -219,7 +214,7 @@ bool branchPredictor::predict(uint32_t pc, uint32_t *dst)
 	uint32_t tag = getTagFromPc(pc);
 	int tagIdx = getTagIdx(pc, tag);
 	
-	if( (tag_vector_[tagIdx]==tag) && isTaken(pc, tagIdx) ) 
+	if( (tag_vector_[tagIdx]==tag) && isTaken(pc, tagIdx) && valid_vector_[tagIdx]==true) 
 	{
 		*dst = getTargetFromTagIdx(tagIdx);
 		return true;
@@ -234,25 +229,23 @@ bool branchPredictor::predict(uint32_t pc, uint32_t *dst)
 
 void branchPredictor::update(uint32_t pc, uint32_t targetPc, bool taken, uint32_t pred_dst)
 {
-	stats_.br_num++; // New Branch, Taken or not
-	predict(pc, &pred_dst); // saved prediction in pred_dst
-
-	if ((taken && (pred_dst!=targetPc))|| (!taken && (pred_dst != pc+4))){ //Finding when we need to flush
-		stats_.flush_num++;
-	}
-
+	
 	uint32_t tag = getTagFromPc(pc);
 	int tagIdx = getTagIdx(pc, tag); //getting tag ID pc from btb
-	if( tag_vector_[tagIdx]==tag ) /*pc exist in btb*/ 
+	if( tag_vector_[tagIdx]==tag && valid_vector_[tagIdx]) /*pc exist in btb*/ 
 	{
 		updateTarget(tagIdx, targetPc);
 		updateFsm(pc, tagIdx, taken);
 		updateHistory(tagIdx, taken);
 	}
 	else /*pc does not exist in btb: may have to replace or insert*/
-	{
 		insertNewBranch(pc, targetPc, taken, pred_dst, tagIdx, tag);
-	}
+
+	stats_.br_num++; // New Branch, Taken or not
+
+	if ((taken && (pred_dst!=targetPc))|| (!taken && (pred_dst != pc+4))) //Finding when we need to flush
+		stats_.flush_num++;
+
 }
 
 unsigned branchPredictor::getFlushNum()
@@ -270,21 +263,19 @@ unsigned branchPredictor::getBtbSize()
 	unsigned fsmSize = pow(2,historySize) * 2;
 	unsigned validBitSize = 1;
 	stats_.size = btbSize_*(validBitSize+targetSize+tagSize_);
-	if ( isGlobalTable_ && isGlobalHist_)  
-	{
-	 	stats_.size += historySize_+fsmSize;
+
+	if(isGlobalHist_){
+		stats_.size += historySize_;
 	}
-	else if ( isGlobalTable_ && !isGlobalHist_ ) 
-	{
-		stats_.size += historySize_+btbSize_*fsmSize;
+	else{
+		stats_.size+= btbSize_*historySize_;
 	}
-	else if ( !isGlobalTable_ && isGlobalHist_ )
-	{
-		stats_.size += btbSize_*historySize_+fsmSize;
+	
+	if (isGlobalTable_){
+		stats_.size+= fsmSize;
 	}
-	else if ( !isGlobalTable_ && !isGlobalHist_ )
-	{
-		stats_.size += btbSize_*(historySize_+fsmSize);
+	else{
+		stats_.size+= btbSize_*fsmSize;
 	}
 	return stats_.size;
 }
@@ -319,4 +310,3 @@ void BP_GetStats(SIM_stats *curStats){
 	curStats->flush_num = bp.getFlushNum();
 	return;
 }
-

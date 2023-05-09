@@ -241,7 +241,7 @@ void branchPredictor::update(uint32_t pc, uint32_t targetPc, bool taken, uint32_
 	
 	uint32_t tag = getTagFromPc(pc);
 	int tagIdx = getTagIdx(pc, tag); //getting tag ID pc from btb
-	if( tag_vector_[tagIdx]==tag && valid_vector_[tagIdx]) /*pc exist in btb*/ 
+if( tag_vector_[tagIdx]==tag && valid_vector_[tagIdx]) /*pc exist in btb*/ 
 	{
 		updateTarget(tagIdx, targetPc);
 		updateFsm(pc, tagIdx, taken);

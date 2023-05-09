@@ -23,7 +23,7 @@ class branchPredictor {
 	SIM_stats stats_; 
 	uint32_t global_history_;
 	vector<uint32_t> tag_vector_;
-	//vector<bool> valid_vector_;
+	vector<bool> valid_vector_;
 	vector<uint32_t> history_vector_;
 	vector<uint32_t> target_vector_;
 	vector<int> global_fsm_table_;
@@ -72,6 +72,7 @@ branchPredictor::branchPredictor(unsigned btbSize, unsigned historySize, unsigne
 	tag_vector_ = vector<uint32_t>(btbSize,0);
 	history_vector_ = vector<uint32_t>(btbSize,0);
 	target_vector_ = vector<uint32_t>(btbSize,0);
+	valid_vector_ = vector<bool>(btbSize,false);
 	global_fsm_table_ = vector<int>(pow(2,historySize),fsmState);
 	fsm_table_.resize(btbSize, vector<int>(pow(2,historySize), fsmState));
 
@@ -187,6 +188,7 @@ void branchPredictor::insertNewBranch(uint32_t pc, uint32_t targetPc, bool taken
 	/*replacement or inserting*/
 	tag_vector_[tagIdx] = tag;
 	target_vector_[tagIdx] = targetPc;
+	valid_vector_[tagIdx] = true;
 	if ( !isGlobalHist_ )
 		history_vector_[tagIdx] = 0;
 
@@ -199,26 +201,6 @@ void branchPredictor::insertNewBranch(uint32_t pc, uint32_t targetPc, bool taken
 
 bool branchPredictor::isTaken(uint32_t pc, int tagIdx)
 {
-	/*int State;
-	if ( isGlobalTable_ && isGlobalHist_)  
-	{
-		uint32_t sharedHistory = getSharedHistory(pc, global_history_); //depends on isShare
-		State = global_fsm_table_[ sharedHistory ];			
-	}
-	else if ( isGlobalTable_ && !isGlobalHist_ ) 
-	{
-		uint32_t sharedHistory = getSharedHistory(pc, history_vector_[tagIdx]); //depends on isShare
-		//uint32_t sharedHistory = history_vector_[tagIdx];
-		State = global_fsm_table_[ sharedHistory ];		
-	}
-	else if ( !isGlobalTable_ && isGlobalHist_ )
-		State = fsm_table_[tagIdx][ global_history_ ];
-	
-	else if ( !isGlobalTable_ && !isGlobalHist_ )
-		State = fsm_table_[tagIdx][ history_vector_[tagIdx] ];
-	
-	return ( State==2 || State==3 );*/
-
 	int State;
 	uint32_t tableIndex;
 	if (isGlobalHist_){
@@ -257,7 +239,7 @@ void branchPredictor::update(uint32_t pc, uint32_t targetPc, bool taken, uint32_
 	
 	uint32_t tag = getTagFromPc(pc);
 	int tagIdx = getTagIdx(pc, tag); //getting tag ID pc from btb
-	if( tag_vector_[tagIdx]==tag ) /*pc exist in btb*/ 
+	if( tag_vector_[tagIdx]==tag && valid_vector_[tagIdx]==false) /*pc exist in btb*/ 
 	{
 		updateTarget(tagIdx, targetPc);
 		updateFsm(pc, tagIdx, taken);

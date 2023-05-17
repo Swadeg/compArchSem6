@@ -4,6 +4,8 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <stdlib.h>
+#include <vector>
 
 using std::FILE;
 using std::string;
@@ -12,11 +14,10 @@ using std::endl;
 using std::cerr;
 using std::ifstream;
 using std::stringstream;
+using std::vector;
 
 
-
-class way
-{
+class way{
       unsigned block_size_;
       unsigned num_set_;
       vector<int> tag_vector_;

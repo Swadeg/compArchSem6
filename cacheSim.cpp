@@ -5,16 +5,18 @@
 #include <fstream>
 #include <sstream>
 #include <stdlib.h>
+#include <math.h>
 #include <vector>
 
-using std::FILE;
-using std::string;
-using std::cout;
-using std::endl;
-using std::cerr;
-using std::ifstream;
-using std::stringstream;
-using std::vector;
+using namespace std;
+// using std::FILE;
+// using std::string;
+// using std::cout;
+// using std::endl;
+// using std::cerr;
+// using std::ifstream;
+// using std::stringstream;
+// using std::vector;
 
 
 class way{
@@ -29,7 +31,13 @@ class way{
       bool read(uint32_t address);
 };
 
-
+void SeparateAddress(uint32_t address, unsigned* offset, unsigned* set, int* tag, unsigned block_size, unsigned num_set){
+	uint32_t shifted_add = address>>2;
+  	*offset = ((int)pow(2,block_size-2) -1)^ shifted_add;
+	shifted_add = address>>block_size;
+	*set = ((int)pow(2,num_set)-1) ^ shifted_add;
+  	*tag = shifted_add >> num_set;
+}
 
 class L
 {
@@ -43,7 +51,9 @@ class L
   
   public:
     L(unsigned Bsize, unsigned Lsize, unsigned Lcyc, unsigned Lassoc, unsigned WrAlloc);
+	bool L::read(uint32_t address);
     count_update();
+
     
 };
 
@@ -57,25 +67,33 @@ way::way(unsigned block_size, unsigned num_set)
 
 bool way::write(uint32_t address)
 {
-  uint32_t shifted_add = address>>2;
-  unsigned offset = (pow(2,block_size_-2) -1)^ shifted_add;
-  shifted_add = address>>block_size_;
-  unsigned set = (pow(2,num_set_)-1) ^ shifted_add;
-  int tag = shifted_add >> num_set_;
-  tag_vector_[set] = tag;
-  Block_Matrix_[set][offset] = true;
+//   uint32_t shifted_add = address>>2;
+//   unsigned offset = (pow(2,block_size_-2) -1)^ shifted_add;
+//   shifted_add = address>>block_size_;
+//   unsigned set = (pow(2,num_set_)-1) ^ shifted_add;
+//   int tag = shifted_add >> num_set_;
+	unsigned offset;
+	unsigned set;
+	int tag;
+	SeparateAddress(address,&offset,&set,&tag,block_size_,num_set_);
+  	tag_vector_[set] = tag;
+	Block_Matrix_[set][offset] = true;
 }
 
 bool way::read(uint32_t address)
 {
-  uint32_t shifted_add = address>>2;
-  unsigned offset = (pow(2,block_size_-2) -1)^ shifted_add;
-  shifted_add = address>>block_size_;
-  unsigned set = (pow(2,num_set_)-1) ^ shifted_add;
-  int tag = shifted_add >> num_set_;
-  if (tag_vector_[set] == tag)
+//   uint32_t shifted_add = address>>2;
+//   unsigned offset = ((int)pow(2,block_size_-2) -1)^ shifted_add;
+//   shifted_add = address>>block_size_;
+//   unsigned set = ((int)pow(2,num_set_)-1) ^ shifted_add;
+//   int tag = shifted_add >> num_set_;
+	unsigned offset;
+	unsigned set;
+	int tag;
+	SeparateAddress(address,&offset,&set,&tag,block_size_,num_set_);
+	if (tag_vector_[set] == tag)
     return Block_Matrix_[set][offset];
-  return false;  
+  return false; 
 }
 
 
@@ -92,7 +110,7 @@ L::L(unsigned Bsize, unsigned Lsize, unsigned Lcyc, unsigned Lassoc, unsigned Wr
   way init_way(Bsize_, num_set);
   ways_ = vector<class way>(pow(2,Lassoc_),init_way);
   count_ = vector<unsigned>(pow(2,Lassoc_),0);
-  for (int i=0,i<count_.size(); i++)
+  for (int i=0;i<count_.size(); i++)
   {
     count_[i]=i;
   }
@@ -101,22 +119,31 @@ L::L(unsigned Bsize, unsigned Lsize, unsigned Lcyc, unsigned Lassoc, unsigned Wr
 
 bool L::read(uint32_t address)
 {
-  uint32_t shifted_add = address>>2;
-  unsigned offset = (pow(2,block_size_-2) -1)^ shifted_add;
-  shifted_add = address>>block_size_;
-  unsigned set = (pow(2,num_set_)-1) ^ shifted_add;
-  int tag = shifted_add >> num_set_;
-  for(int i=0;i<ways_size();i++)
-  {
-    if (ways_[i].read(address))
-    {
-      count_update();
-      return true; //fix address
-    }
-  }
-  /*data not found*/
-  return false;
+//   uint32_t shifted_add = address>>2;
+//   unsigned offset = (pow(2,block_size_-2) -1)^ shifted_add;
+//   shifted_add = address>>block_size_;
+//   unsigned set = (pow(2,num_set_)-1) ^ shifted_add;
+//   int tag = shifted_add >> num_set_;
+	unsigned offset;
+	unsigned set;
+	int tag;
+	SeparateAddress(address, &offset, &set, &tag, Bsize_,(Lsize_- Bsize_- Lassoc_));
+
+	for(int i=0;i<(int)pow(2,Lassoc_);i++)
+	{
+		if (ways_[i].read(address))
+		{
+		count_update();
+		return true; //fix address
+		}
+	}
+	/*data not found*/
+	return false;
 }
+
+
+
+
 
 bool L::write(uint32_t address)
 {

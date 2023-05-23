@@ -17,6 +17,7 @@ using std::stringstream;
 using namespace std;
 
 #define NOT_DIRTY_ADDR 1
+#define NOT_VALID 1
 #define NO_DIRTY_OFFSET -1
 
 class way
@@ -33,7 +34,7 @@ public:
 	void setTag(unsigned set, int tag) { tagVector_[set] = tag; }
 	bool getValid(unsigned set) { return validVector_[set]; }
 	void setValid(unsigned set,  bool valid) { validVector_[set] = valid; }
-	unsigned getDirty(unsigned set);
+	unsigned getDirty(unsigned set) {return dirtyVector_[set];};
 	void setDirty(unsigned set, bool dirty) { dirtyVector_[set] = dirty; }
 };
 
@@ -44,23 +45,6 @@ way::way(unsigned waySize, unsigned blockSize)
 	dirtyVector_ = vector<bool>(waySize, false);
 	validVector_ = vector<bool>(waySize, false);
 }
-
-unsigned way::getDirty(unsigned set){
-	return dirtyVector_[set];
-}
-
-// unsigned way::getDirty(unsigned set)
-// {
-// 	unsigned offsetToReturn = NO_DIRTY_OFFSET;
-// 	for (int off=0; off<pow(2,wayBlockSize_); off++ )
-// 	{
-// 		if (dirtyVector_[set][off]==true) 
-// 		{
-// 			offsetToReturn = off;
-// 		}
-// 	}
-// 	return offsetToReturn;
-// }
 
 class L
 {
@@ -80,13 +64,15 @@ public:
 	void readMiss();
 	void writeHit();
 	void writeMiss();
-	void write(uint32_t address, int way);
-	unsigned makePlaceByLRUpolicy(uint32_t address, int* way);
+	//void write(uint32_t address, int way);
+	unsigned makePlaceByLRUpolicy(uint32_t address, bool dirty, unsigned lruWay,int* way);
+	unsigned checkValidation(uint32_t address, unsigned lruWay);
 	void markDirtyBlock(uint32_t address, int way);
 	unsigned getMissesNum();
 	unsigned getHitsNum();
-	void updateLRUCount(uint32_t address, int way);
+	unsigned getLRUWay(uint32_t address);
 	void updateLRUCountReplace(uint32_t address, int way);
+	void invalidate(uint32_t address, unsigned lruWay);
 
 };
 
@@ -126,64 +112,73 @@ void L::writeHit(){hitsNum_++;}
 
 void L::writeMiss() { missesNum_++; }
 
-uint32_t L::makePlaceByLRUpolicy(uint32_t address, int* way)
+unsigned L::getLRUWay(uint32_t address)
+{
+	uint32_t set = (address >> blockSize_) & (uint32_t)(setNum_ - 1);
+	for (unsigned i = 0; i < waysNum_; i++)
+	{
+		if (!ways_[i].getValid(set)||(ways_[i].getValid(set)&& LRUcount_[i][set] == 0))
+			return i;
+	}
+	return 0;
+}
+
+uint32_t L::makePlaceByLRUpolicy(uint32_t address, bool dirty,unsigned lruWay ,int* way)
 {
 	uint32_t set = (address >> blockSize_) & (uint32_t)(setNum_ - 1);
 	uint32_t tag = address >> (int)(blockSize_ + log2(setNum_));
-	unsigned lruWay = 0;
 	int oldTag;
-	unsigned addrToReturn  = NOT_DIRTY_ADDR;  /*if real adress should have 2 LSB 0
-	for (unsigned i = 0; i < waysNum_; i++)
-	{
-		if (LRUcount_[i][set] == 0)
-		{
-			lruWay = i;
-			break;
-		}
-	}*/
+	unsigned addrToReturn  = NOT_DIRTY_ADDR;  /*if real adress should have 2 LSB 0*/
+
 	/*if its a dirty block, should write the old block to one level down, so return old tag*/
-	if ( ways_[lruWay].getDirty(set))
-	{
+	if (lruWay >=0){
+		if (ways_[lruWay].getValid(set) && ways_[lruWay].getDirty(set))
+		{
+			oldTag = ways_[lruWay].getTag(set);
+			addrToReturn = ( oldTag << (int)(log2(setNum_)) ) | set;
+			addrToReturn = addrToReturn << 2;
+		}
+		ways_[lruWay].setTag(set, tag); /*insert the new tag*/
+		ways_[lruWay].setValid(set,true);
+		ways_[lruWay].setDirty(set,dirty);
+		updateLRUCountReplace(address,lruWay);
+		if (way!=NULL)
+			*way = lruWay;
+	}
+	return addrToReturn;
+}
+
+unsigned L::checkValidation(uint32_t address, unsigned lruWay){
+	uint32_t set = (address >> blockSize_) & (uint32_t)(setNum_ - 1);
+	int oldTag;
+	unsigned addrToReturn  = NOT_VALID;  /*if real adress should have 2 LSB 0*/
+	if(lruWay >=0 && ways_[lruWay].getValid(set)){
 		oldTag = ways_[lruWay].getTag(set);
 		addrToReturn = ( oldTag << (int)(log2(setNum_)) ) | set;
 		addrToReturn = addrToReturn << 2;
 	}
-	ways_[lruWay].setTag(set, tag); /*insert the new tag*/
-	if (way != NULL)
-		*way = int(lruWay);
 	return addrToReturn;
 }
 
-void L::write(uint32_t address, int way)
-{
-	//uint32_t offset = (address>>2) & (uint32_t)(pow(2, blockSize_-2) - 1);
-	uint32_t set = (address >> blockSize_) & (uint32_t)(setNum_ - 1);
-	int tagSize = 32 - blockSize_ - (int)log2(setNum_); 
-	uint32_t tag = (address >> (blockSize_ + (int)log2(setNum_))) & (uint32_t)(pow(2,tagSize)-1);	
-	if (ways_[way].getTag(set) == tag){
-		ways_[way].setValid(set,true);
-	}
-	// for (int i = 0; i < waysNum_; i++)
-	// {
-	// 	if (ways_[i].getTag(set) == tag)
-	// 	{
-	// 		ways_[i].setValid(set, true);
-	// 		break;
-	// 	}
-	// }
-}
+// void L::write(uint32_t address, int way)
+// {
+// 	uint32_t set = (address >> blockSize_) & (uint32_t)(setNum_ - 1);
+// 	int tagSize = 32 - blockSize_ - (int)log2(setNum_); 
+// 	uint32_t tag = (address >> (blockSize_ + (int)log2(setNum_))) & (uint32_t)(pow(2,tagSize)-1);	
+// 	if (ways_[way].getTag(set) == tag){
+// 		ways_[way].setValid(set,true);
+// 	}
+// }
 
 void L::markDirtyBlock(uint32_t address, int way) /*assumes that tag is already exist*/
 {
 	uint32_t set = (address >> blockSize_) & (uint32_t)(setNum_ - 1);
-	//uint32_t tag = address >> (int)(blockSize_ + log2(setNum_));
 	ways_[way].setDirty(set,true);
 }
 
 void L::updateLRUCountReplace(uint32_t address, int way)
 {
 	uint32_t set = (address >> blockSize_) & (uint32_t)(setNum_ - 1);
-	//uint32_t tag = address >> (int)(blockSize_ + log2(setNum_));
 	for (unsigned i = 0; i < waysNum_; i++)
 	{
 		bool largerLRU = (LRUcount_[i][set] > LRUcount_[way][set]) || !ways_[way].getValid(set);
@@ -192,38 +187,20 @@ void L::updateLRUCountReplace(uint32_t address, int way)
 		}
 	}
 	LRUcount_[way][set] = waysNum_-1;
-	ways_[way].setValid(set,true);
 	
 }
-
-void L::updateLRUCount(uint32_t address, int way){
+void L::invalidate(uint32_t address, unsigned lruWay){
 	uint32_t set = (address >> blockSize_) & (uint32_t)(setNum_ - 1);
-	//uint32_t tag = address >> (int)(blockSize_ + log2(setNum_));
 	for (unsigned i = 0; i < waysNum_; i++)
 	{
-		bool largerLRU = LRUcount_[i][set] > LRUcount_[way][set];
-		if (largerLRU && ways_[i].getValid(set) && int(i)!=way){
-			LRUcount_[i][set]--;
+		bool smallerLRU = (LRUcount_[i][set] < LRUcount_[lruWay][set]);
+		if (smallerLRU && ways_[i].getValid(set) && i!=lruWay ){
+			LRUcount_[i][set]++;
 		}
 	}
-	ways_[way].setValid(set, false);
+	LRUcount_[lruWay][set]=0;
+	ways_[lruWay].setValid(set,false);
 }
-// {
-// 	uint32_t set = (address >> blockSize_) & (uint32_t)(setNum_ - 1);
-// 	int tagSize = 32 - blockSize_ - (int)log2(setNum_); 
-// 	uint32_t tag = (address >> (blockSize_ + (int)log2(setNum_))) & (uint32_t)(pow(2,tagSize)-1);	for (int i = 0; i < waysNum_; i++)
-// 	{
-// 		if (ways_[i].getTag(set) == tag)
-// 		{
-// 			for(int j=waysNum_-1; j>=0; j--)
-// 			{
-// 				if(j!=i && LRUcount_[j][set]>0)LRUcount_[j][set]--;
-// 			}
-// 			LRUcount_[i][set] = waysNum_-1;
-// 			return;
-// 		}
-// 	}
-// }
 
 unsigned L::getHitsNum() { return hitsNum_; }
 unsigned L::getMissesNum() { return missesNum_; }
@@ -325,9 +302,9 @@ int main(int argc, char **argv)
 		cout << ", address (hex)" << cutAddress;
 
 		/************************ manage the cashe *********************************/
-		//uint32_t addr = std::stoul(cutAddress); /*address as uint32_t*/
+
 		uint32_t addr = static_cast<uint32_t>(std::stoul(cutAddress, nullptr, 16));
-		int oldAddr;
+		int oldAddr; unsigned lruWay;
 		if (operation=='r')
 		{
 			int wayFound = l1.lookForTag(addr);
@@ -340,27 +317,28 @@ int main(int argc, char **argv)
 			{
 				l1.readMiss();
 				wayFound = l2.lookForTag(addr);
-				if (wayFound != -1)
+				if (wayFound != -1) // found in L2
 				{
 					l2.readHit();
 					l2.updateLRUCountReplace(addr,wayFound);
+
 				}
 				else
 				{
 					l2.readMiss();
-					memAccNum++;						    /*access mem to read data from there*/
-					oldAddr = l2.makePlaceByLRUpolicy(addr,&wayFound); /*insert new tag to cache*/
-					if (oldAddr!=NOT_DIRTY_ADDR) memAccNum++; /*access mem to erite old tag*/
-					l2.write(addr,wayFound);
-					int L1way;
-					oldAddr = l1.makePlaceByLRUpolicy(addr,&L1way);
-					if (oldAddr!=NOT_DIRTY_ADDR) 				/*write old tag that was in L1 to L2*/
-					{
-						if (l2.makePlaceByLRUpolicy(oldAddr,&wayFound)!=NOT_DIRTY_ADDR) memAccNum++;
-						l2.write(oldAddr,wayFound);
-					}
-					l1.write(addr,L1way);
+					memAccNum++;	/*access mem to read data from there*/
+					lruWay = l2.getLRUWay(addr);
+					if (l2.checkValidation(addr,lruWay) != NOT_VALID) l1.invalidate(addr,lruWay);
+					
+					oldAddr = l2.makePlaceByLRUpolicy(addr,false, lruWay, &wayFound); /*insert new tag to cache*/
 				}
+				lruWay = l1.getLRUWay(addr);
+				oldAddr = l1.makePlaceByLRUpolicy(addr,false, lruWay, NULL);
+				if (oldAddr != NOT_DIRTY_ADDR) {
+					l2.markDirtyBlock(addr,wayFound);
+					l2.updateLRUCountReplace(addr,wayFound);
+				}
+				
 			}
 		}
 		
@@ -382,27 +360,26 @@ int main(int argc, char **argv)
 				if (wayFound != -1) //tag isnt in L1 but in L2
 				{
 					l2.writeHit();
+					l2.updateLRUCountReplace(addr,wayFound);
 					if (WrAlloc)
 					{
-						//l2.write(addr);
-						//l2.markDirtyBlock(addr);
-						//l2.updateLRUCountReplace(addr,wayFound);
-						oldAddr = l1.makePlaceByLRUpolicy(addr,NULL);
+						lruWay = l2.getLRUWay(addr);
+						if (l2.checkValidation(addr,lruWay) != NOT_VALID) l1.invalidate(addr,lruWay);
+						
+						lruWay= l1.getLRUWay(addr);
+						oldAddr = l1.makePlaceByLRUpolicy(addr,false,lruWay,&wayFound);
 						if (oldAddr!=NOT_DIRTY_ADDR) 				//write old tag that was in L1 to L2
 						{
-							if (l2.makePlaceByLRUpolicy(oldAddr,NULL)!=NOT_DIRTY_ADDR) memAccNum++;
-							//l2.write(oldAddr);
-							l2.updateLRUCountReplace(addr,wayFound);
+							lruWay = l2.getLRUWay(addr);
+							if (l2.makePlaceByLRUpolicy(oldAddr,true, lruWay, &wayFound)!=NOT_DIRTY_ADDR)
+								memAccNum++;
 						}
-						l1.write(addr,wayFound);
-						l1.updateLRUCountReplace(addr,wayFound);
 					}
-					else //no write allocate
+					else
 					{
-						//l2.write(addr);
-						l2.updateLRUCountReplace(addr,wayFound);
+						
+						l2.markDirtyBlock(addr,wayFound);
 					}
-					l2.markDirtyBlock(addr,wayFound);
 				}
 				else //tag isnt in L1 and isnt in L2
 				{
@@ -410,18 +387,18 @@ int main(int argc, char **argv)
 					memAccNum++; //access mem to write new data there
 					if (WrAlloc)
 					{
-						oldAddr = l2.makePlaceByLRUpolicy(addr,&wayFound); //insert new tag to cache
+						lruWay = l2.getLRUWay(addr);
+						oldAddr = l2.makePlaceByLRUpolicy(addr,lruWay,false,NULL); //insert new tag to cache
 						if (oldAddr!=NOT_DIRTY_ADDR) memAccNum++; //access mem to erite old tag
-						l2.write(addr,wayFound);
-						int L1way;
-						oldAddr = l1.makePlaceByLRUpolicy(addr,&L1way);
+						//l2.write(addr,wayFound);
+						lruWay = l1.getLRUWay(addr);
+						oldAddr = l1.makePlaceByLRUpolicy(addr,false, lruWay,&wayFound);
 						if (oldAddr!=NOT_DIRTY_ADDR) 				//write old tag that was in L1 to L2
 						{
-							if (l2.makePlaceByLRUpolicy(oldAddr,&wayFound)!=NOT_DIRTY_ADDR) memAccNum++;
-							l2.write(oldAddr,wayFound);
-							l1.markDirtyBlock(oldAddr,L1way);
+							lruWay = l2.getLRUWay(addr);
+							if (l2.makePlaceByLRUpolicy(oldAddr,true,lruWay,&wayFound)!=NOT_DIRTY_ADDR) 
+								memAccNum++;
 						}
-						l1.write(addr, L1way);
 					}
 					else //no write allocate
 					{

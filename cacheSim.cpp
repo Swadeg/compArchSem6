@@ -136,7 +136,7 @@ uint32_t L::makePlaceByLRUpolicy(uint32_t address, bool dirty,unsigned lruWay ,i
 		{
 			oldTag = ways_[lruWay].getTag(set);
 			addrToReturn = ( oldTag << (int)(log2(setNum_)) ) | set;
-			addrToReturn = addrToReturn << 2;
+			addrToReturn = addrToReturn << blockSize_;
 		}
 		ways_[lruWay].setTag(set, tag); /*insert the new tag*/
 		ways_[lruWay].setValid(set,true);
@@ -155,7 +155,7 @@ unsigned L::checkValidation(uint32_t address, unsigned lruWay){
 	if(lruWay >=0 && ways_[lruWay].getValid(set)){
 		oldTag = ways_[lruWay].getTag(set);
 		addrToReturn = ( oldTag << (int)(log2(setNum_)) ) | set;
-		addrToReturn = addrToReturn << 2;
+		addrToReturn = addrToReturn << blockSize_;
 	}
 	return addrToReturn;
 }
@@ -332,13 +332,15 @@ int main(int argc, char **argv)
 						if (wayFound != NOT_FOUND)
 							l1.invalidate(oldAddrValid,wayFound);
 					}
-					l2.makePlaceByLRUpolicy(addr,false, lruWay, &wayFound);
+					l2.makePlaceByLRUpolicy(addr,false, lruWay, NULL);
 				}
-				oldAddr = l1.makePlaceByLRUpolicy(addr,false, l1.getLRUWay(addr), &wayFound);
+				oldAddr = l1.makePlaceByLRUpolicy(addr,false, l1.getLRUWay(addr), NULL);
 				if (oldAddr != NOT_DIRTY_ADDR){
-					lruWay = l2.getLRUWay(oldAddr);
-					l2.markDirtyBlock(oldAddr,lruWay);
-					l2.updateLRUCountReplace(oldAddr,lruWay);
+					//x   lruWay = l2.getLRUWay(oldAddr);
+					//l2.markDirtyBlock(oldAddr,lruWay);
+					//l2.makePlaceByLRUpolicy(oldAddr,false, lruWay, NULL);
+					if(l2.makePlaceByLRUpolicy(oldAddr,false,l2.getLRUWay(oldAddr),NULL) != NOT_DIRTY_ADDR) totTime+= MemCyc;
+					//l2.updateLRUCountReplace(oldAddr,lruWay);
 				}
 			}
 		}
@@ -367,13 +369,14 @@ int main(int argc, char **argv)
 					l2.writeHit();
 					if (WrAlloc)
 					{
+						l2.markDirtyBlock(addr,wayFound);
 						l2.updateLRUCountReplace(addr,wayFound);
-						oldAddr = l1.makePlaceByLRUpolicy(addr,true,l1.getLRUWay(addr),NULL);
+						oldAddr = l1.makePlaceByLRUpolicy(addr,false,l1.getLRUWay(addr),NULL);
 						if (oldAddr!=NOT_DIRTY_ADDR) 				//write old tag that was in L1 to L2
 						{
-							lruWay = l2.getLRUWay(oldAddr);
-							l2.markDirtyBlock(oldAddr,lruWay);
-							l2.updateLRUCountReplace(oldAddr,lruWay);
+							//lruWay = l2.getLRUWay(oldAddr);
+							//l2.markDirtyBlock(oldAddr,lruWay);
+							if(l2.makePlaceByLRUpolicy(oldAddr,true,l2.getLRUWay(oldAddr),NULL) != NOT_DIRTY_ADDR)totTime+= MemCyc;							//l2.updateLRUCountReplace(oldAddr,lruWay);
 						}
 					}
 					else
@@ -389,6 +392,7 @@ int main(int argc, char **argv)
 					memAccNum++; //access mem to write new data there
 					if (WrAlloc)
 					{
+						
 						lruWay = l2.getLRUWay(addr);
 						oldAddrValid = l2.checkValidation(addr,lruWay);
 						if (oldAddrValid != NOT_VALID){
@@ -398,16 +402,17 @@ int main(int argc, char **argv)
 						}
 							
 						
-						oldAddr = l2.makePlaceByLRUpolicy(addr,lruWay,false,NULL); //insert new tag to cache
-						if (oldAddr!=NOT_DIRTY_ADDR) memAccNum++; //access mem to write old tag
+						oldAddr = l2.makePlaceByLRUpolicy(addr,false,lruWay,NULL); //insert new tag to cache
+						if (oldAddr!=NOT_DIRTY_ADDR) totTime+= MemCyc; //access mem to write old tag
 						//l2.write(addr,wayFound);
 						lruWay = l1.getLRUWay(addr);
-						oldAddr = l1.makePlaceByLRUpolicy(addr,true, lruWay,&wayFound);
+						oldAddr = l1.makePlaceByLRUpolicy(addr,true, lruWay,NULL);
 						if (oldAddr!=NOT_DIRTY_ADDR) 				//write old tag that was in L1 to L2
 						{
-							lruWay = l2.getLRUWay(oldAddr);
-							l2.markDirtyBlock(oldAddr,lruWay);
-							l2.updateLRUCountReplace(oldAddr,lruWay);
+							//lruWay = l2.getLRUWay(oldAddr);
+							//l2.markDirtyBlock(oldAddr,lruWay);
+							if(l2.makePlaceByLRUpolicy(oldAddr,true,l2.getLRUWay(oldAddr),NULL) != NOT_DIRTY_ADDR) totTime+= MemCyc;
+							//l2.updateLRUCountReplace(oldAddr,lruWay);
 						}
 					}
 					else //no write allocate
@@ -439,8 +444,8 @@ int main(int argc, char **argv)
 
 	L1MissRate = (double)L1MissesNum / (L1accessNum);
 	L2MissRate = (double)L2MissesNum / (L2accessNum);
-	avgAccTime = (double)totTime / (L1accessNum);
-	//avgAccTime = (1-L1MissRate) * L1Cyc + L1MissRate * (1-L2MissRate) * (L1Cyc + L2Cyc) + L1MissRate * L2MissRate * (L1Cyc + L2Cyc + MemCyc);
+	//avgAccTime = (double)(totTime) / (L1accessNum);
+	avgAccTime = (1-L1MissRate) * L1Cyc + L1MissRate * (1-L2MissRate) * (L1Cyc + L2Cyc) + L1MissRate * L2MissRate * (L1Cyc + L2Cyc + MemCyc);
 	// L1MissRate = (double)L1MissesNum / (L1MissesNum + L1HitsNum);
 	// L1HitsRate = (double)L1HitsNum / (L1MissesNum + L1HitsNum);
 	// L2MissRate = (double)L2MissesNum / (L2MissesNum + L2HitsNum);

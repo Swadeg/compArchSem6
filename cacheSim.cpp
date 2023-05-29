@@ -195,7 +195,7 @@ int main(int argc, char **argv)
 
 	// File
 	// Assuming it is the first argument
-	char *fileString = argv[1];           /*replace with argv[1] in the end*/
+	char *fileString = argv[1]; 
 	ifstream file(fileString); // input file stream
 	string line;
 	if (!file || !file.good())
@@ -258,8 +258,7 @@ int main(int argc, char **argv)
 	L l2(BSize, L2Size, L2Cyc, L2Assoc);
 	unsigned L1accessNum = 0, L1HitNum = 0, L1MissNum = 0;
 	unsigned L2accessNum = 0, L2HitNum = 0, L2MissNum = 0;
-	//unsigned totTime = 0;
-	//unsigned totAccessNum = 0;
+
 
 	while (getline(file, line))
 	{
@@ -274,11 +273,8 @@ int main(int argc, char **argv)
 			return 0;
 		}
 
-		// DEBUG - remove this line
-		//cout << "operation: " << operation;
 		string cutAddress = address.substr(2); // Removing the "0x" part of the address
-		// DEBUG - remove this line
-		//cout << ", address (hex)" << cutAddress;
+
 
 		/************************ manage the cashe *********************************/
 
@@ -331,7 +327,7 @@ int main(int argc, char **argv)
 			if (wayFound != NOT_FOUND) //tag is in L1
 			{
 				L1HitNum++;
-				l1.markDirtyBlock(addr,wayFound); //mark written block in L1 as dirty
+				l1.markDirtyBlock(addr,wayFound);
 				l1.updateLRUCount(addr, wayFound);
 			}
 			else
@@ -346,7 +342,7 @@ int main(int argc, char **argv)
 					{
 						l2.updateLRUCount(addr,wayFound);
 						oldAddr = l1.makePlaceByLRUpolicy(addr,true,l1.getLRUWay(addr));
-						if (oldAddr!=NOT_DIRTY_ADDR) 				//write old tag that was in L1 to L2
+						if (oldAddr!=NOT_DIRTY_ADDR) //write old tag that was in L1 to L2
 						{
 							l2.makePlaceByLRUpolicy(oldAddr,true,l2.lookForTag(oldAddr));
 						}
@@ -395,8 +391,7 @@ int main(int argc, char **argv)
 
 		unsigned long int num = 0;
 		num = strtoul(cutAddress.c_str(), NULL, 16);
-		// DEBUG - remove this line
-		//cout << " (dec) " << num << endl;
+
 	}
 
 	double L1MissRate;

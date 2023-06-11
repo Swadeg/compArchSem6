@@ -7,7 +7,7 @@
 
 #define REGS_NUM 32
 #define MAX_DEP_NUM 2
-#define ENTRY -2
+#define ENTRY -1
 
 using namespace std;
 
@@ -37,17 +37,19 @@ Prog::Prog(const unsigned int opsLatency[], const InstInfo progTrace[], unsigned
     progTrace_ = (InstInfo*)progTrace;
     numOfInsts_ = numOfInsts;
     not_exit_vec = vector<int>(numOfInsts_, 0); 
-    dependencies_vec = vector<vector<int>>(numOfInsts_, vector<int>(MAX_DEP_NUM, -1)); // each inst depend on 2 inst max
-    entry_idx = ENTRY; // first inst in the trace is the entry 
+    dependencies_vec = vector<vector<int>>(numOfInsts_, vector<int>(MAX_DEP_NUM, ENTRY)); // each inst depend on 2 inst max
+    entry_idx = 0; // first inst in the trace is the entry 
     exit_idx = -1;
+    // each inst at first points to entry
     for(unsigned int i=0; i<numOfInsts_; i++)
     {
-        dependencies_vec[i] = vector<int>(MAX_DEP_NUM, -1);
+        dependencies_vec[i] = vector<int>(MAX_DEP_NUM, ENTRY);
     }
     for(unsigned int i=0; i<REGS_NUM; i++)
     {
         reg_arr[i] = -1; // means at begin, no insts that changed any register
     }
+    
 }
 
 void Prog::myAnalyzeProg()
@@ -65,16 +67,16 @@ void Prog::myAnalyzeProg()
         LIidx1 = reg_arr[src1];
         LIidx2 = reg_arr[src2];
         //check "distance"
-        if((LIidx1 != -1) && (i-LIidx1 <= opsLatency_[progTrace_[LIidx1].opcode]))
+        if(LIidx1 != -1)
         {
             //means inst number i depends on inst number LIidx1;
-            dependencies_vec[i].push_back(LIidx1);
+            dependencies_vec[i][0] = LIidx1;
             not_exit_vec[LIidx1] = 1; // inst LIidx1 cant be exit
         }
-        if((LIidx2 != -1) && (i-LIidx2 <= opsLatency_[progTrace_[LIidx2].opcode]))
+        if(LIidx2 != -1)
         {
             //means inst number i depends on inst number LIidx2;
-            dependencies_vec[i].push_back(LIidx2);
+            dependencies_vec[i][1] = LIidx2;
             not_exit_vec[LIidx2] = 1; // inst LIidx2 cant be exit
         }
         reg_arr[dst] = i; // mark that inst number i changed reg dst
@@ -87,21 +89,50 @@ void Prog::myAnalyzeProg()
             exit_idx = i;
             break;
         }
-    }    
+    } 
 }
 
 int Prog::myGetInstDepth(unsigned int instIdx)
 {
     int depthToReturn = 0;
-    int dependency_idx;
+    int dependency_idx1;
+    int dependency_idx2;
+    int dep_latency1;
+    int dep_latency2;
     if(instIdx<0 || instIdx>numOfInsts_) return -1; // invalid inst index
-    for(unsigned int i=0; i<dependencies_vec[instIdx].size(); i++)
+    dependency_idx1 = dependencies_vec[instIdx][0];
+    dependency_idx2 = dependencies_vec[instIdx][1];
+    while(dependency_idx1 != ENTRY || dependency_idx2 != ENTRY)//till not arrive to entry
     {
-        dependency_idx = dependencies_vec[instIdx][i];
-        if(dependency_idx != -1)
+        if(dependency_idx1 == ENTRY)
         {
-            //get the latency of the opcode of the dependency
-            depthToReturn += opsLatency_[progTrace_[dependency_idx].opcode];
+            // dependency_idx2 != ENTRY
+            dep_latency2 = opsLatency_[progTrace_[dependency_idx2].opcode];
+            depthToReturn += dep_latency2;
+            instIdx = dependency_idx2;
+            dependency_idx1 = dependencies_vec[instIdx][0];
+            dependency_idx2 = dependencies_vec[instIdx][1];
+            continue;
+        }
+        else if(dependency_idx2 == ENTRY)
+        {
+            //dependency_idx1 != ENTRY and dependency_idx2 == ENTRY
+            dep_latency1 = opsLatency_[progTrace_[dependency_idx1].opcode];
+            depthToReturn += dep_latency1;
+            instIdx = dependency_idx1;
+            dependency_idx1 = dependencies_vec[instIdx][0];
+            dependency_idx2 = dependencies_vec[instIdx][1];
+            continue;
+        }
+        else
+        {
+            //dependency_idx1 != ENTRY and dependency_idx2 != ENTRY
+            dep_latency1 = opsLatency_[progTrace_[dependency_idx1].opcode];
+            dep_latency2 = opsLatency_[progTrace_[dependency_idx2].opcode];
+            depthToReturn += ((dep_latency1 > dep_latency2) ? dep_latency1 : dep_latency2);
+            instIdx = ((dep_latency1 > dep_latency2) ? dependency_idx1 : dependency_idx2);
+            dependency_idx1 = dependencies_vec[instIdx][0];
+            dependency_idx2 = dependencies_vec[instIdx][1];
         }
     }
     return depthToReturn;
@@ -110,14 +141,27 @@ int Prog::myGetInstDepth(unsigned int instIdx)
 int Prog::myGetInstDeps(unsigned int instIdx, int *src1DepInst, int *src2DepInst)
 {
     if(instIdx<0 || instIdx>numOfInsts_) return -1; // invalid inst index
-    src1DepInst = &dependencies_vec[instIdx][0];
-    src2DepInst = &dependencies_vec[instIdx][1];
+    *src1DepInst = dependencies_vec[instIdx][0];
+    *src2DepInst = dependencies_vec[instIdx][1];
     return 0; //success
 }
 
 int Prog::myGetProgDepth()
 {
-    return myGetInstDepth(exit_idx);
+    int max_prog_depth = 0;
+    int prog_depth = 0;
+    for(unsigned int i=0; i<not_exit_vec.size(); i++)
+    {
+        if(not_exit_vec[i] == 0)
+        {
+            prog_depth = myGetInstDepth(i);
+            exit_idx = i;
+        }
+            
+        if (prog_depth > max_prog_depth)
+            max_prog_depth = prog_depth;
+    } 
+    return max_prog_depth + opsLatency_[progTrace_[exit_idx].opcode];
 }
 
 ///////////////////////// manage the adt of the analyzer ////////////////////////////////////

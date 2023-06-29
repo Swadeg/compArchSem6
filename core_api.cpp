@@ -69,7 +69,6 @@ void thread::execute_inst(int *sw_flag, int cycle)
 			thread_reg.reg[inst.dst_index] = thread_reg.reg[inst.src1_index] +
 											 thread_reg.reg[inst.src2_index_imm];
 			//the state still idle
-						//cout<<"ADD"<<endl;
 
 			break;
 		}
@@ -77,7 +76,6 @@ void thread::execute_inst(int *sw_flag, int cycle)
 			thread_reg.reg[inst.dst_index] = thread_reg.reg[inst.src1_index] +
 											 inst.src2_index_imm;
 			//the state still idle
-						//cout<<"ADDI"<<endl;
 
 			break;
 		}	
@@ -85,45 +83,38 @@ void thread::execute_inst(int *sw_flag, int cycle)
 			thread_reg.reg[inst.dst_index] = thread_reg.reg[inst.src1_index] -
 											 thread_reg.reg[inst.src2_index_imm];
 			//the state still idle
-			//cout<<"SUB"<<endl;
 			break;
 		}	
 	case CMD_SUBI:{
 			thread_reg.reg[inst.dst_index] = thread_reg.reg[inst.src1_index] -
 											 inst.src2_index_imm;
 			//the state still idle
-			//cout<<"SUBI"<<endl;
 			break;
 
 		}
 	case CMD_LOAD:{
 			int src2 = inst.isSrc2Imm ? inst.src2_index_imm : thread_reg.reg[inst.src2_index_imm];
 			int32_t* dst = &(thread_reg.reg[inst.dst_index]);
-			uint32_t address = thread_reg.reg[inst.dst_index] + src2;
-			//cout<<"LOAD addr: "<<address<<" dst: "<<dst<<endl;
+			uint32_t address = thread_reg.reg[inst.src1_index] + src2;
 			SIM_MemDataRead(address, dst);
 			state = BUSY;
 			*sw_flag = 1;
 			available_cycle = cycle + 1 + SIM_GetLoadLat();
-			//cout<<"LOAD, latency: "<<SIM_GetLoadLat()<<endl;
 			break;
 		}
 	case CMD_STORE:{
 			int src2 = inst.isSrc2Imm ? inst.src2_index_imm : thread_reg.reg[inst.src2_index_imm];
 			int32_t val = thread_reg.reg[inst.src1_index];
 			uint32_t address = thread_reg.reg[inst.dst_index] + src2;
-			//cout<<"STORE addr: "<<address<<" val: "<<val<<endl;
 			SIM_MemDataWrite(address, val);	
 			state = BUSY;
 			*sw_flag = 1;	
 			available_cycle = cycle + 1 + SIM_GetStoreLat();	
-			//cout<<"STORE, latency: "<<SIM_GetLoadLat()<<endl;
 			break;
 		}
 	case CMD_HALT:{
 			state = HALT;
 			*sw_flag = 1;
-			//cout<<"HALT"<<endl;
 			break;
 		}
 	default:
@@ -139,11 +130,9 @@ int get_thread_id_by_RR(int num_threads, int thread_id_, bool isBlockedMT) //
 {
 	//returns next idle thread id, -1 if all the threads are halted , otherwise -2
 	int res = thread_id_;
-	//Current thread isn't blocked
 	//Blocked multithread
 	if(isBlockedMT && blocked_threads_vec[res%num_threads]->get_state() == IDLE) return thread_id_;
-	//Fine grained MT
-	//if(!isBlockedMT && fine_grained_vec[i%num_threads]->get_state() == IDLE) return thread_id_;
+	//Fine grained MT - Automatically switches
 	
 	//thread is blocked
 	res = (res+1)%num_threads;
@@ -243,19 +232,13 @@ void CORE_FinegrainedMT() {
 	thread_id = 0;
 	while(thread_id != ALL_INACTIVE)
 	{	
-		//cout<<endl<< "cycle: "<<cycles_num<<endl;
-		//cout<<"Thread: "<<thread_id<<endl;
 		if (fine_grained_vec[thread_id]->get_state() == IDLE){
-
 			fine_grained_vec[thread_id]->execute_inst(&null_switch,cycles_num);
 			instructions_num++;
-			//cout<<"Instruction: "<<instructions_num<<endl;
 		}
 		cycles_num++;
 		for(int i=0; i<num_threads; i++) fine_grained_vec[i]->update_state_regard_cyc(cycles_num);
 		thread_id = get_thread_id_by_RR(num_threads, thread_id, false);
-		//cout<< "Next thread: "<<thread_id<<endl<<endl;
-		
 	}
 	fine_grained_CPI = (double)cycles_num / instructions_num;
 }
